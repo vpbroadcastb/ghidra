@@ -5963,16 +5963,16 @@ vtblDdList: "{"^buildVtblDdList^"}"	is TMode=1 & thv_c0809=2 & thv_N7 & thv_c161
 vtblDdList: "{"^buildVtblDdList^"}"	is TMode=1 & thv_c0809=3 & thv_N7 & thv_c1619 & buildVtblDdList [ regNum=(thv_N7<<4)+thv_c1619-1; counter=4; ] { export 4:4; }
 
 
-:vtbl.8 VRd,vtblDdList,VRm is ( ($(AMODE) &  ARMcond=0 & cond=15 & c2327=7 & c2021=3 & c1011=2 & c0606=0 & c0404=0) |
-                                    ($(TMODE_F)  &      thv_c2327=0x1f & thv_c2021=3 & thv_c1011=2 & thv_c0606=0 & thv_c0404=0 ) ) & VRm & VRd & VRn & vtblDdList
+:vtbl.8 Dd,vtblDdList,Dm is ( ($(AMODE) &  ARMcond=0 & cond=15 & c2327=7 & c2021=3 & c1011=2 & c0606=0 & c0404=0) |
+                                    ($(TMODE_F)  &      thv_c2327=0x1f & thv_c2021=3 & thv_c1011=2 & thv_c0606=0 & thv_c0404=0 ) ) & Dm & Dd & VRn & vtblDdList
 {
-	VRd = VectorTableLookup(VRm,VRn,vtblDdList);
+	Dd = VectorTableLookup(Dm,VRn,vtblDdList);
 }
 
-:vtbx.8 VRd,vtblDdList,VRm is ( ($(AMODE) &  ARMcond=0 & cond=15 & c2327=7 & c2021=3 & c1011=2 & c0606=1 & c0404=0) |
-                                    ($(TMODE_F)  &      thv_c2327=0x1f & thv_c2021=3 & thv_c1011=2 & thv_c0606=1 & thv_c0404=0 ) ) & VRm & VRd & VRn & vtblDdList
+:vtbx.8 Dd,vtblDdList,Dm is ( ($(AMODE) &  ARMcond=0 & cond=15 & c2327=7 & c2021=3 & c1011=2 & c0606=1 & c0404=0) |
+                                    ($(TMODE_F)  &      thv_c2327=0x1f & thv_c2021=3 & thv_c1011=2 & thv_c0606=1 & thv_c0404=0 ) ) & Dm & Dd & VRn & vtblDdList
 {
-	VRd = VectorTableLookup(VRm,VRn,vtblDdList);
+	Dd = VectorTableLookup(Dm,VRn,vtblDdList);
 }
 
 
