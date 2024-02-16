@@ -52,8 +52,6 @@ import ghidra.framework.plugintool.annotation.AutoServiceConsumed;
 import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.lifecycle.Internal;
 import ghidra.trace.model.*;
-import ghidra.trace.model.Trace.TraceObjectChangeType;
-import ghidra.trace.model.Trace.TraceThreadChangeType;
 import ghidra.trace.model.guest.TracePlatform;
 import ghidra.trace.model.program.TraceProgramView;
 import ghidra.trace.model.program.TraceVariableSnapProgramView;
@@ -62,6 +60,7 @@ import ghidra.trace.model.target.TraceObjectKeyPath;
 import ghidra.trace.model.thread.TraceThread;
 import ghidra.trace.model.time.TraceSnapshot;
 import ghidra.trace.model.time.schedule.TraceSchedule;
+import ghidra.trace.util.TraceEvents;
 import ghidra.util.*;
 import ghidra.util.database.DomainObjectLockHold;
 import ghidra.util.exception.*;
@@ -75,7 +74,10 @@ import ghidra.util.task.*;
 	packageName = DebuggerPluginPackage.NAME,
 	status = PluginStatus.RELEASED,
 	eventsProduced = {
+		TraceOpenedPluginEvent.class,
 		TraceActivatedPluginEvent.class,
+		TraceInactiveCoordinatesPluginEvent.class,
+		TraceClosedPluginEvent.class,
 	},
 	eventsConsumed = {
 		TraceActivatedPluginEvent.class,
@@ -104,9 +106,9 @@ public class DebuggerTraceManagerServicePlugin extends Plugin
 
 		public ListenerForTraceChanges(Trace trace) {
 			this.trace = trace;
-			listenFor(TraceThreadChangeType.ADDED, this::threadAdded);
-			listenFor(TraceThreadChangeType.DELETED, this::threadDeleted);
-			listenFor(TraceObjectChangeType.CREATED, this::objectCreated);
+			listenFor(TraceEvents.THREAD_ADDED, this::threadAdded);
+			listenFor(TraceEvents.THREAD_DELETED, this::threadDeleted);
+			listenFor(TraceEvents.OBJECT_CREATED, this::objectCreated);
 		}
 
 		private void threadAdded(TraceThread thread) {
@@ -284,6 +286,8 @@ public class DebuggerTraceManagerServicePlugin extends Plugin
 	private DebuggerPlatformService platformService;
 	// @AutoServiceConsumed via method
 	private DebuggerControlService controlService;
+	@AutoServiceConsumed
+	private NavigationHistoryService navigationHistoryService;
 	@SuppressWarnings("unused")
 	private final AutoService.Wiring autoServiceWiring;
 
@@ -540,7 +544,21 @@ public class DebuggerTraceManagerServicePlugin extends Plugin
 		return coordinates.platform(platform);
 	}
 
-	protected DebuggerCoordinates doSetCurrent(DebuggerCoordinates newCurrent,
+	protected boolean doSetCurrent(DebuggerCoordinates newCurrent) {
+		synchronized (listenersByTrace) {
+			if (current.equals(newCurrent)) {
+				return false;
+			}
+			current = newCurrent;
+			if (newCurrent.getTrace() != null) {
+				lastCoordsByTrace.put(newCurrent.getTrace(), newCurrent);
+			}
+		}
+		contextChanged();
+		return true;
+	}
+
+	protected DebuggerCoordinates fixAndSetCurrent(DebuggerCoordinates newCurrent,
 			ActivationCause cause) {
 		newCurrent = newCurrent == null ? DebuggerCoordinates.NOWHERE : newCurrent;
 		newCurrent = fillInTarget(newCurrent.getTrace(), newCurrent);
@@ -551,16 +569,9 @@ public class DebuggerTraceManagerServicePlugin extends Plugin
 				newCurrent = newCurrent.snap(target.getSnap());
 			}
 		}
-		synchronized (listenersByTrace) {
-			if (current.equals(newCurrent)) {
-				return null;
-			}
-			current = newCurrent;
-			if (newCurrent.getTrace() != null) {
-				lastCoordsByTrace.put(newCurrent.getTrace(), newCurrent);
-			}
+		if (!doSetCurrent(newCurrent)) {
+			return null;
 		}
-		contextChanged();
 		return newCurrent;
 	}
 
@@ -627,7 +638,7 @@ public class DebuggerTraceManagerServicePlugin extends Plugin
 	public void processEvent(PluginEvent event) {
 		super.processEvent(event);
 		if (event instanceof TraceActivatedPluginEvent ev) {
-			doSetCurrent(ev.getActiveCoordinates(), ev.getCause());
+			fixAndSetCurrent(ev.getActiveCoordinates(), ev.getCause());
 		}
 		else if (event instanceof TraceClosedPluginEvent ev) {
 			doTraceClosed(ev.getTrace());
@@ -959,6 +970,9 @@ public class DebuggerTraceManagerServicePlugin extends Plugin
 	}
 
 	protected void doTraceClosed(Trace trace) {
+		if (navigationHistoryService != null) {
+			navigationHistoryService.clear(trace.getProgramView());
+		}
 		synchronized (listenersByTrace) {
 			trace.release(this);
 			lastCoordsByTrace.remove(trace);
@@ -1057,11 +1071,16 @@ public class DebuggerTraceManagerServicePlugin extends Plugin
 		DebuggerCoordinates resolved;
 
 		prev = current;
-		resolved = doSetCurrent(coordinates, cause);
+		resolved = fixAndSetCurrent(coordinates, cause);
 		if (resolved == null) {
 			return AsyncUtils.nil();
 		}
-		CompletableFuture<Void> future = prepareViewAndFireEvent(resolved, cause);
+		CompletableFuture<Void> future =
+			prepareViewAndFireEvent(resolved, cause).exceptionally(ex -> {
+				// Emulation service will already display error
+				doSetCurrent(prev);
+				return null;
+			});
 
 		if (!synchronizeActive.get() || cause != ActivationCause.USER) {
 			return future;

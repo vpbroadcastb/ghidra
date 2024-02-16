@@ -731,7 +731,8 @@ void ParamListStandard::assignMap(const PrototypePieces &proto,TypeFactory &type
   for(int4 i=0;i<proto.intypes.size();++i) {
     res.emplace_back();
     Datatype *dt = proto.intypes[i];
-    if (assignAddress(dt,proto,i,typefactory,status,res.back()) == AssignAction::fail)
+    uint4 responseCode = assignAddress(dt,proto,i,typefactory,status,res.back());
+    if (responseCode == AssignAction::fail || responseCode == AssignAction::no_assignment)
       throw ParamUnassignedError("Cannot assign parameter address for " + dt->getName());
   }
 }
@@ -1503,7 +1504,12 @@ void ParamListStandardOut::assignMap(const PrototypePieces &proto,TypeFactory &t
     return;			// Leave the address as invalid
   }
   uint4 responseCode = assignAddress(proto.outtype,proto,-1,typefactory,status,res.back());
-  if (responseCode != AssignAction::success) { // Could not assign an address (too big)
+
+  if (responseCode == AssignAction::fail)
+    responseCode = AssignAction::hiddenret_ptrparam;	// Invoke default hidden return input assignment action
+
+  if (responseCode == AssignAction::hiddenret_ptrparam || responseCode == AssignAction::hiddenret_specialreg ||
+      responseCode == AssignAction::hiddenret_specialreg_void) { // Could not assign an address (too big)
     AddrSpace *spc = spacebase;
     if (spc == (AddrSpace *)0)
       spc = typefactory.getArch()->getDefaultDataSpace();
@@ -1512,13 +1518,12 @@ void ParamListStandardOut::assignMap(const PrototypePieces &proto,TypeFactory &t
     Datatype *pointertp = typefactory.getTypePointer(pointersize, proto.outtype, wordsize);
     if (responseCode == AssignAction::hiddenret_specialreg_void) {
       res.back().type = typefactory.getTypeVoid();
-      res.back().flags = 0;
     }
     else {
       if (assignAddressFallback(TYPECLASS_PTR,pointertp,false,status,res.back()) == AssignAction::fail)
 	throw ParamUnassignedError("Cannot assign return value as a pointer");
-      res.back().flags = ParameterPieces::indirectstorage;
     }
+    res.back().flags = ParameterPieces::indirectstorage;
 
     res.emplace_back();			// Add extra storage location in the input params
     res.back().type = pointertp;	// that holds a pointer to where the return value should be stored
@@ -5629,9 +5634,11 @@ bool FuncCallSpecs::setInputBytesConsumed(int4 slot,int4 val) const
   while(inputConsume.size() <= slot)
     inputConsume.push_back(0);
   int4 oldVal = inputConsume[slot];
-  if (oldVal == 0 || val < oldVal)
+  if (oldVal == 0 || val < oldVal) {	// Only let the value get smaller
     inputConsume[slot] = val;
-  return (oldVal != val);
+    return true;
+  }
+  return false;
 }
 
 /// \brief Prepend any extra parameters if a paramshift is required

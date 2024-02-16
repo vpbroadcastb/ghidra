@@ -187,6 +187,8 @@ public class DebuggerConsoleProvider extends ComponentProviderAdapter
 	 * 
 	 * <p>
 	 * This class is public for access by test cases only.
+	 * 
+	 * @param <T> the type of the message
 	 */
 	public interface LogRow<T> {
 		Icon getIcon();
@@ -320,6 +322,11 @@ public class DebuggerConsoleProvider extends ComponentProviderAdapter
 		}
 
 		@Override
+		public void errorReported(MonitorReceiver monitor, Throwable error) {
+			log(DebuggerResources.ICON_LOG_ERROR, error.getMessage());
+		}
+
+		@Override
 		public void progressUpdated(MonitorReceiver monitor, long progress) {
 			LogRow<?> logRow = logTableModel.getMap().get(contextFor(monitor));
 			logTableModel.updateItem(logRow);
@@ -334,10 +341,12 @@ public class DebuggerConsoleProvider extends ComponentProviderAdapter
 
 	static class CancelAction extends DockingAction {
 		static final Icon ICON = Icons.STOP_ICON;
+		static final String HELP_ANCHOR = "cancel";
 
 		public CancelAction(Plugin owner) {
 			super("Cancel", owner.getName());
 			setToolBarData(new ToolBarData(ICON));
+			setHelpLocation(new HelpLocation(owner.getName(), HELP_ANCHOR));
 		}
 
 		@Override
